@@ -1,16 +1,44 @@
-from transformers import Trainer, TrainingArguments
+import logging 
+logging.basicConfig(level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S')
+logging.info("starting script")
+
+from transformers import AlbertTokenizer
 import torch
+from datasets import load_dataset
 from torch.utils.data import Dataset
+from datasets import Dataset as ds
+# Load the tokenizer
+tokenizer = AlbertTokenizer.from_pretrained("AnReu/math_albert")
 
-# Load the tokenizer and model
-# Load model directly
-from transformers import AutoTokenizer, AutoModelForPreTraining
+# manually download the dataset
+"""
+logging.info("manually download the dataset")
+import requests
+import tarfile
+from datasets import load_from_disk
 
-tokenizer = AutoTokenizer.from_pretrained("AnReu/math_pretrained_bert")
-model = AutoModelForPreTraining.from_pretrained("AnReu/math_pretrained_bert")
+# URL to the dataset
+url = "https://storage.googleapis.com/mathematics-dataset/mathematics_dataset-v1.0.tar.gz"
 
+# Download the dataset
+response = requests.get(url)
+with open("mathematics_dataset-v1.0.tar.gz", "wb") as file:
+    file.write(response.content)
+
+# Extract the dataset
+with tarfile.open("mathematics_dataset-v1.0.tar.gz", "r:gz") as tar:
+    tar.extractall()
+
+# Load the dataset from the extracted files
+dataset = load_from_disk("mathematics_dataset-v1.0")
+
+# Display some information about the dataset
+print(dataset)
+"""
 # Define a custom dataset class
-class CustomDataset(Dataset):
+class MathMisconceptionsDataset(Dataset) :
     def __init__(self, texts, labels):
         self.encodings = tokenizer(texts, truncation=True, padding=True)
         self.labels = labels
@@ -22,37 +50,53 @@ class CustomDataset(Dataset):
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
         item['labels'] = torch.tensor(self.labels[idx])
         return item
-# get data
+
+# Load the dataset
+logging.info("loadding dataset")
 model_dir = 'c:/ai_ml/kaggle/eedi-mining/model'
-#           'C:\ai_ml\kaggle\eedi-mining\model\flattened_misconceptions.csv'
-model_data=f"{model_dir}/flattened_misconceptions.csv"
-out_dir = model_dir
+model_dataset=f"{model_dir}/math_misconceptions_dataset.pt"
+# dataset = load_dataset(path="math_dataset", name='algebra__linear_1d', trust_remote_code=True)  # Replace with your actual dataset
+dataset = torch.load(model_dataset) 
 
-# Prepare your dataset (replace with your own data)
-texts = ["sample text 1", "sample text 2"]
-labels = [0, 1]
-dataset = CustomDataset(texts, labels)
+# Tokenize the dataset
+def tokenize_function(examples):
+    return tokenizer(examples["text"], padding="max_length", truncation=True,  return_tensors="pt")
 
-# Set up training arguments and trainer
+tokenized_datasets = dataset.map(tokenize_function, batched=True)
+
+from transformers import AlbertForSequenceClassification, TrainingArguments, Trainer
+
+# Load the model
+model = AlbertForSequenceClassification.from_pretrained("AnReu/math_albert", num_labels=2)
+outputs = model(**tokenized_datasets)
+loss = outputs.loss
+logging.info('loss',loss)
+# Define training arguments
 training_args = TrainingArguments(
-    output_dir='./results',
-    num_train_epochs=1,
-    per_device_train_batch_size=4,
-    per_device_eval_batch_size=4,
-    warmup_steps=500,
-    weight_decay=0.01,
-    logging_dir='./logs',
+    output_dir="./results",
+    num_train_epochs=3,
+    per_device_train_batch_size=8,
+    per_device_eval_batch_size=8,
+    logging_dir="./logs",
+    logging_steps=10,
+    evaluation_strategy="epoch"
 )
 
+# Initialize the Trainer
+logging.info("initialize trainer")
 trainer = Trainer(
     model=model,
     args=training_args,
-    train_dataset=dataset,
-    eval_dataset=dataset,
+    train_dataset=tokenized_datasets["train"],
+    eval_dataset=tokenized_datasets["test"],
+    tokenizer=tokenizer
 )
 
 # Train the model
+logging.info('training the model')
 trainer.train()
 
-# Save the fine-tuned model
-model.save_pretrained('./fine_tuned_math_albert')
+logging.info('evaluate model')
+results = trainer.evaluate()
+print(results)
+
