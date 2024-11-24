@@ -1,3 +1,5 @@
 
 eedi-mining/eedi-mining-misconceptions-in-mathematics.zip
 eedi-mining/model/bert_model.ckpt.data-00000-of-00001
+/eedi-mining/fine_tune_math_albert/logs
+/logs
